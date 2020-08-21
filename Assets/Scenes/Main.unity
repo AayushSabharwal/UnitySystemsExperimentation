@@ -1721,7 +1721,7 @@ Mesh:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: pb_Mesh16724
+  m_Name: pb_Mesh16828
   serializedVersion: 10
   m_SubMeshes:
   - serializedVersion: 2
@@ -1992,12 +1992,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   cameraTransform: {fileID: 963194228}
   groundCheckParams:
-    sphereCastRadius: 0.45
-    sphereCastDistance: 1.2
-    groundMask:
+    spherecastRadius: 0.45
+    spherecastDistance: 1.2
+    mask:
       serializedVersion: 2
       m_Bits: 256
-  CameraFx: {fileID: 963194229}
+  cameraFx: {fileID: 963194229}
   lookSensitivity: 0.1
   verticalLookAngle: 80
   moveSpeed: 6
@@ -2005,6 +2005,12 @@ MonoBehaviour:
   sprintMultiplier: 1.5
   sprintDuration: 2
   sprintRegenerationDelay: 1
+  wallCheckRaycastParams:
+    raycastDistance: 0.6
+    mask:
+      serializedVersion: 2
+      m_Bits: 256
+  wallSlideSpeed: 3
 --- !u!54 &1223746914
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -2027,7 +2033,7 @@ Mesh:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: pb_Mesh16820
+  m_Name: pb_Mesh16956
   serializedVersion: 10
   m_SubMeshes:
   - serializedVersion: 2
@@ -2908,7 +2914,7 @@ Mesh:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: pb_Mesh16808
+  m_Name: pb_Mesh16944
   serializedVersion: 10
   m_SubMeshes:
   - serializedVersion: 2
@@ -3109,7 +3115,7 @@ Mesh:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: pb_Mesh16746
+  m_Name: pb_Mesh16858
   serializedVersion: 10
   m_SubMeshes:
   - serializedVersion: 2
@@ -3273,7 +3279,7 @@ Mesh:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: pb_Mesh16778
+  m_Name: pb_Mesh16908
   serializedVersion: 10
   m_SubMeshes:
   - serializedVersion: 2

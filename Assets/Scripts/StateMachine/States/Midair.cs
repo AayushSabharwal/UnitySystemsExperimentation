@@ -19,6 +19,7 @@ public class Midair : IState
 
     public void Tick()
     {
+        _controller.ResetHasToJump();
         _rb.velocity = _transform.forward * _controller.Move.y + _transform.right * _controller.Move.x +
                        _transform.up * _rb.velocity.y;
     }

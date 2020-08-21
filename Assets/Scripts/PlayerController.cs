@@ -1,25 +1,33 @@
 ﻿using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerController : MonoBehaviour
 {
     [Serializable]
-    private struct SphereCastParams
+    private struct SpherecastParams
     {
-        public float sphereCastRadius;
-        public float sphereCastDistance;
-        public LayerMask groundMask;
+        public float spherecastRadius;
+        public float spherecastDistance;
+        public LayerMask mask;
+    }
+
+    [Serializable]
+    private struct RaycastParams
+    {
+        public float raycastDistance;
+        public LayerMask mask;
     }
 
     [Header("References")]
     [SerializeField]
     private Transform cameraTransform;
     [SerializeField]
-    private SphereCastParams groundCheckParams;
+    private SpherecastParams groundCheckParams;
     [SerializeField]
-    private CameraFXManager CameraFx;
+    private CameraFXManager cameraFx;
     
     [Header("Input Modifiers")]
     [SerializeField]
@@ -28,7 +36,7 @@ public class PlayerController : MonoBehaviour
     [SerializeField]
     private float verticalLookAngle = 90f;
     
-    [Header("Movement Parameters")]
+    [Header("Basic Movement Parameters")]
     [SerializeField]
     private float moveSpeed = 4f;
     [SerializeField]
@@ -39,15 +47,20 @@ public class PlayerController : MonoBehaviour
     private float sprintDuration = 2f;
     [SerializeField]
     private float sprintRegenerationDelay = 1f;
+
+    [Header("Wall Checking")]
+    [SerializeField]
+    private RaycastParams wallCheckRaycastParams;
+    public float wallSlideSpeed; 
     
     private Controls _controls;
-    
     private Vector2 _look;
     private float _sprintDurationLeft;
     private float _sprintRegenerationDelayLeft;
     private bool _hasToJump;
     private bool _isHoldingSprint;
     private bool _isGrounded;
+    private bool _isFacingWall;
     private StateMachine _stateMachine;
     private Rigidbody _rb;
 
@@ -73,6 +86,7 @@ public class PlayerController : MonoBehaviour
     private void Awake()
     {
         _isHoldingSprint = false;
+        _isFacingWall = false;
         _hasToJump = false;
         SprintDurationLeft = sprintDuration;
         _sprintRegenerationDelayLeft = sprintRegenerationDelay;
@@ -81,28 +95,46 @@ public class PlayerController : MonoBehaviour
         
         _stateMachine = new StateMachine();
         Walking walking = new Walking(this, transform, _rb);
-        Sprinting sprinting = new Sprinting(this, transform, _rb, CameraFx);
+        Sprinting sprinting = new Sprinting(this, transform, _rb, cameraFx);
         Jump jump = new Jump(this, _rb);
         Midair midair = new Midair(this, transform, _rb);
+        WallSlide wallSlide = new WallSlide(this, _rb, transform);
+        Idle idle = new Idle();
 
+        bool IsMoving() => Move != Vector2.zero;
+        bool NotMoving() => Move == Vector2.zero;
         bool Grounded() => _isGrounded;
         bool NotGrounded() => !_isGrounded;
         bool SprintButtonHeldAndCanSprint() => _isHoldingSprint && CanSprint;
         bool SprintButtonLeft() => !_isHoldingSprint;
         bool CannotSprint() => !CanSprint;
         bool JumpButtonPressed() => _hasToJump;
+        bool FacingWallAndHoldingForward() => _isFacingWall && Move.y > 0f;
+        bool NotHoldingForward() => Move.y < moveSpeed;
 
+        _stateMachine.AddTransition(idle, walking, IsMoving);
+        _stateMachine.AddTransition(idle, midair, NotGrounded);
+        
+        _stateMachine.AddTransition(walking, idle, NotMoving);
+        _stateMachine.AddTransition(walking, midair, NotGrounded);
         _stateMachine.AddTransition(walking, sprinting, SprintButtonHeldAndCanSprint);
         _stateMachine.AddTransition(walking, jump, JumpButtonPressed);
 
+        _stateMachine.AddTransition(sprinting, idle, NotMoving);
         _stateMachine.AddTransition(sprinting, walking, SprintButtonLeft);
         _stateMachine.AddTransition(sprinting, walking, CannotSprint);
+        _stateMachine.AddTransition(sprinting, midair, NotGrounded);
         _stateMachine.AddTransition(sprinting, jump, JumpButtonPressed);
 
-        _stateMachine.AddTransition(midair, walking, Grounded);
-        _stateMachine.AddAnyTransition(midair, NotGrounded);
+        _stateMachine.AddTransition(jump, midair, NotGrounded);
         
-        _stateMachine.ChangeState(walking);
+        _stateMachine.AddTransition(midair, idle, Grounded);
+        _stateMachine.AddTransition(midair, wallSlide, FacingWallAndHoldingForward);
+        
+        _stateMachine.AddTransition(wallSlide, midair, NotHoldingForward);
+        _stateMachine.AddTransition(wallSlide, idle, Grounded);
+        
+        _stateMachine.ChangeState(idle);
     }
 
     private void OnEnable()
@@ -133,6 +165,7 @@ public class PlayerController : MonoBehaviour
         HandleSprintDuration();
         ClampCameraRotation();
         CheckGrounded();
+        CheckFacingWall();
     }
 
     private void OnDisable()
@@ -153,15 +186,22 @@ public class PlayerController : MonoBehaviour
         _controls.Player.Sprint.Disable();
     }
 
-    public void NotifyHasJumped()
+    public void ResetHasToJump()
     {
         _hasToJump = false;
     }
     
     private void CheckGrounded()
     {
-        _isGrounded = Physics.SphereCast(new Ray(transform.position, Vector3.down), groundCheckParams.sphereCastRadius,
-                                        groundCheckParams.sphereCastDistance, groundCheckParams.groundMask,
+        _isGrounded = Physics.SphereCast(new Ray(transform.position, Vector3.down), groundCheckParams.spherecastRadius,
+                                        groundCheckParams.spherecastDistance, groundCheckParams.mask,
+                                        QueryTriggerInteraction.Ignore);
+    }
+
+    private void CheckFacingWall()
+    {
+        _isFacingWall = Physics.Raycast(new Ray(transform.position, transform.forward),
+                                        wallCheckRaycastParams.raycastDistance, wallCheckRaycastParams.mask,
                                         QueryTriggerInteraction.Ignore);
     }
 
@@ -212,7 +252,7 @@ public class PlayerController : MonoBehaviour
     private void JumpInput(InputAction.CallbackContext context)
     {
         // if (IsGrounded) Rb.velocity += Vector3.up * jumpSpeed;
-        if(_isGrounded) _hasToJump = true;
+        _hasToJump = true;
     }
 
     private void SprintInput(InputAction.CallbackContext context)
