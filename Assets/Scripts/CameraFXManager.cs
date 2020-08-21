@@ -3,8 +3,6 @@
 public class CameraFXManager : MonoBehaviour
 {
     [SerializeField]
-    private PlayerController playerController;
-    [SerializeField]
     private Camera cam;
     [SerializeField]
     private int normalFOV = 60;
@@ -15,7 +13,6 @@ public class CameraFXManager : MonoBehaviour
 
     private int _lastTween;
     private bool _isTweening;
-    private int TargetFOV => playerController.IsSprinting ? sprintFOV : normalFOV;
 
     private void Awake()
     {
@@ -23,24 +20,18 @@ public class CameraFXManager : MonoBehaviour
         _isTweening = false;
     }
 
-    private void Update()
-    {
-        if (!Mathf.Approximately(cam.fieldOfView, TargetFOV) && !_isTweening)
-            SetFOV();
-    }
-
-    private void SetFOV()
+    public void SetFOV(bool isSprinting)
     {
         if (_isTweening)
             LeanTween.cancel(_lastTween);
         _isTweening = true;
         _lastTween = LeanTween.value(gameObject,
                                      fov => cam.fieldOfView = fov,
-                                     playerController.IsSprinting ? normalFOV : sprintFOV,
-                                     TargetFOV,
+                                     isSprinting ? normalFOV : sprintFOV,
+                                     isSprinting ? sprintFOV : normalFOV,
                                      tweenDuration)
                               .setOnComplete(() => _isTweening = false)
                               .id;
-        //cam.fieldOfView = playerController.IsSprinting ? sprintFOV : normalFOV;
+        
     }
 }

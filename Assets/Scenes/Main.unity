@@ -1324,7 +1324,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0cf2012eb3f43ba43b6d478884e1b1e3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  playerController: {fileID: 1223746913}
   cam: {fileID: 963194227}
   normalFOV: 60
   sprintFOV: 55
@@ -1998,6 +1997,7 @@ MonoBehaviour:
     groundMask:
       serializedVersion: 2
       m_Bits: 256
+  CameraFx: {fileID: 963194229}
   lookSensitivity: 0.1
   verticalLookAngle: 80
   moveSpeed: 6

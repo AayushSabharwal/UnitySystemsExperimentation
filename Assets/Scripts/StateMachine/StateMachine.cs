@@ -1,22 +1,27 @@
 ﻿using System;
 using System.Collections.Generic;
+using UnityEngine;
 
 public class StateMachine
 {
-    private IState _currentState;
+    public IState CurrentState { get; private set; }
     private readonly Dictionary<Type, List<Transition>> _transitionMap;
+    private List<Transition> _currentTransitions;
     private readonly List<Transition> _anyTransitions;
+    private readonly List<Transition> _emptyTransitions;
 
     public StateMachine()
     {
         _transitionMap = new Dictionary<Type, List<Transition>>();
         _anyTransitions = new List<Transition>();
+        _currentTransitions = new List<Transition>();
+        _emptyTransitions = new List<Transition>(0);
     }
 
     public void AddTransition(IState from, IState to, Func<bool> predicate)
     {
         if (!_transitionMap.TryGetValue(from.GetType(), out List<Transition> _))
-            _transitionMap[@from.GetType()] = new List<Transition>();
+            _transitionMap[from.GetType()] = new List<Transition>(0);
 
         _transitionMap[from.GetType()].Add(new Transition(to, predicate));
     }
@@ -31,16 +36,21 @@ public class StateMachine
         Transition? transition = GetTransition();
         if (transition != null) ChangeState(transition.Value.To);
 
-        _currentState?.Tick();
+        CurrentState?.Tick();
     }
 
     public void ChangeState(IState to)
     {
-        if (_currentState == to) return;
-
-        _currentState.OnExit();
-        _currentState = to;
-        _currentState.OnEnter();
+        if(to == null) return;
+        if (CurrentState == to) return;
+        
+        CurrentState?.OnExit();
+        CurrentState = to;
+        if (!_transitionMap.TryGetValue(CurrentState.GetType(), out _currentTransitions))
+        {
+            _currentTransitions = _emptyTransitions;
+        }
+        CurrentState?.OnEnter();
     }
 
 
@@ -50,8 +60,8 @@ public class StateMachine
         {
             if (transition.Predicate()) return transition;
         }
-
-        foreach (Transition transition in _transitionMap[_currentState.GetType()])
+        
+        foreach (Transition transition in _currentTransitions)
         {
             if (transition.Predicate()) return transition;
         }
