@@ -1,7 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
+using MEC;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.Serialization;
 
 [RequireComponent(typeof(Rigidbody))]
 public class PlayerController : MonoBehaviour
@@ -28,31 +29,44 @@ public class PlayerController : MonoBehaviour
     private SpherecastParams groundCheckParams;
     [SerializeField]
     private CameraFXManager cameraFx;
-    
+
     [Header("Input Modifiers")]
     [SerializeField]
     [Range(0f, 1f)]
     private float lookSensitivity = 0.01f;
     [SerializeField]
     private float verticalLookAngle = 90f;
-    
+
     [Header("Basic Movement Parameters")]
     [SerializeField]
-    private float moveSpeed = 4f;
+    public float moveSpeed = 4f;
     [SerializeField]
     public float jumpSpeed = 100f;
+    [SerializeField]
+    public float airControl = 0.8f;
     [Range(1f, 2f)]
     public float sprintMultiplier = 1.5f;
     [SerializeField]
     private float sprintDuration = 2f;
     [SerializeField]
     private float sprintRegenerationDelay = 1f;
+    [SerializeField]
+    private float wallJumpDuration = 0.4f;
+    [SerializeField]
+    [Tooltip("X is perpendicular out, Y is tangential up")]
+    public Vector2 wallJumpSpeed;
 
     [Header("Wall Checking")]
     [SerializeField]
     private RaycastParams wallCheckRaycastParams;
-    public float wallSlideSpeed; 
-    
+    public float wallSlideSpeed;
+
+    [Header("Debugging")]
+    [SerializeField]
+    private bool showGroundCheck;
+    [SerializeField]
+    private bool showWallCheck;
+
     private Controls _controls;
     private Vector2 _look;
     private float _sprintDurationLeft;
@@ -61,6 +75,7 @@ public class PlayerController : MonoBehaviour
     private bool _isHoldingSprint;
     private bool _isGrounded;
     private bool _isFacingWall;
+    private bool _isWallJumping;
     private StateMachine _stateMachine;
     private Rigidbody _rb;
 
@@ -92,14 +107,15 @@ public class PlayerController : MonoBehaviour
         _sprintRegenerationDelayLeft = sprintRegenerationDelay;
         _controls = new Controls();
         _rb = GetComponent<Rigidbody>();
-        
+
         _stateMachine = new StateMachine();
-        Walking walking = new Walking(this, transform, _rb);
-        Sprinting sprinting = new Sprinting(this, transform, _rb, cameraFx);
+        Walking walking = new Walking(this, _rb);
+        Sprinting sprinting = new Sprinting(this, _rb, cameraFx);
         Jump jump = new Jump(this, _rb);
-        Midair midair = new Midair(this, transform, _rb);
-        WallSlide wallSlide = new WallSlide(this, _rb, transform);
-        Idle idle = new Idle();
+        Midair midair = new Midair(this, _rb, transform);
+        WallSlide wallSlide = new WallSlide(this, _rb);
+        WallJump wallJump = new WallJump(this, _rb);
+        Idle idle = new Idle(this);
 
         bool IsMoving() => Move != Vector2.zero;
         bool NotMoving() => Move == Vector2.zero;
@@ -110,11 +126,13 @@ public class PlayerController : MonoBehaviour
         bool CannotSprint() => !CanSprint;
         bool JumpButtonPressed() => _hasToJump;
         bool FacingWallAndHoldingForward() => _isFacingWall && Move.y > 0f;
+        bool NotFacingWall() => !_isFacingWall;
         bool NotHoldingForward() => Move.y < moveSpeed;
 
         _stateMachine.AddTransition(idle, walking, IsMoving);
         _stateMachine.AddTransition(idle, midair, NotGrounded);
-        
+        _stateMachine.AddTransition(idle, jump, JumpButtonPressed);
+
         _stateMachine.AddTransition(walking, idle, NotMoving);
         _stateMachine.AddTransition(walking, midair, NotGrounded);
         _stateMachine.AddTransition(walking, sprinting, SprintButtonHeldAndCanSprint);
@@ -127,13 +145,18 @@ public class PlayerController : MonoBehaviour
         _stateMachine.AddTransition(sprinting, jump, JumpButtonPressed);
 
         _stateMachine.AddTransition(jump, midair, NotGrounded);
-        
+        // _stateMachine.AddTransition(jump, idle, Grounded);
+
         _stateMachine.AddTransition(midair, idle, Grounded);
         _stateMachine.AddTransition(midair, wallSlide, FacingWallAndHoldingForward);
-        
+
         _stateMachine.AddTransition(wallSlide, midair, NotHoldingForward);
         _stateMachine.AddTransition(wallSlide, idle, Grounded);
+        _stateMachine.AddTransition(wallSlide, wallJump, JumpButtonPressed);
+        _stateMachine.AddTransition(wallSlide, midair, NotFacingWall);
         
+        _stateMachine.AddTransition(wallJump, midair, NotGrounded);
+
         _stateMachine.ChangeState(idle);
     }
 
@@ -186,16 +209,57 @@ public class PlayerController : MonoBehaviour
         _controls.Player.Sprint.Disable();
     }
 
+    private void OnDrawGizmos()
+    {
+        Gizmos.color = Color.green;
+        if (showGroundCheck)
+        {
+            Gizmos.DrawWireSphere(transform.position - Vector3.up * groundCheckParams.spherecastDistance,
+                                  groundCheckParams.spherecastRadius);
+        }
+
+        if (showWallCheck)
+            Gizmos.DrawLine(transform.position,
+                            transform.position + transform.forward * wallCheckRaycastParams.raycastDistance);
+    }
+
+    public void SetRelativeVelocity(float x, float y, float z)
+    {
+        if (_isWallJumping)
+            return;
+
+        _rb.velocity = transform.right * x + transform.up * y + transform.forward * z;
+    }
+
+    public void SetAbsoluteVelocity(float x, float y, float z)
+    {
+        if (_isWallJumping)
+            return;
+        _rb.velocity = Vector3.right * x + Vector3.up * y + Vector3.forward * z;
+    }
+
     public void ResetHasToJump()
     {
         _hasToJump = false;
     }
-    
+
+    public void OnWallJump()
+    {
+        _isWallJumping = true;
+        Timing.RunCoroutine(ReEnableControls());
+    }
+
+    private IEnumerator<float> ReEnableControls()
+    {
+        yield return Timing.WaitForSeconds(wallJumpDuration);
+        _isWallJumping = false;
+    }
+
     private void CheckGrounded()
     {
         _isGrounded = Physics.SphereCast(new Ray(transform.position, Vector3.down), groundCheckParams.spherecastRadius,
-                                        groundCheckParams.spherecastDistance, groundCheckParams.mask,
-                                        QueryTriggerInteraction.Ignore);
+                                         groundCheckParams.spherecastDistance, groundCheckParams.mask,
+                                         QueryTriggerInteraction.Ignore);
     }
 
     private void CheckFacingWall()

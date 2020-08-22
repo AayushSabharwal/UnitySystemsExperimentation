@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using UnityEngine;
 using Utility.Assertions;
 
 public class StateMachine
@@ -37,7 +38,9 @@ public class StateMachine
         Assert.IsNotNull(to, "StateMachine/ChangeState: to state cannot be null");
 
         if (CurrentState == to) return;
-
+        
+        // Debug.Log($"from {CurrentState} to {to}");
+        
         CurrentState?.OnExit();
         CurrentState = to;
         CurrentState.OnEnter();
@@ -69,11 +72,4 @@ public class StateMachine
             Predicate = predicate;
         }
     }
-}
-
-public interface IState
-{
-    void OnEnter();
-    void Tick();
-    void OnExit();
 }

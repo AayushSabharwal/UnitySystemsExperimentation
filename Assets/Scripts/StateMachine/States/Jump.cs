@@ -13,10 +13,7 @@ public class Jump : IState
 
     public void OnEnter()
     {
-        Vector3 velocity = _rb.velocity;
-        velocity.y += _controller.jumpSpeed;
-        _rb.velocity = velocity;
-
+        _controller.SetAbsoluteVelocity(_rb.velocity.x, _rb.velocity.y + _controller.jumpSpeed, _rb.velocity.z);
         _controller.ResetHasToJump();
     }
 
