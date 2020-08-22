@@ -16,8 +16,9 @@ public class PlayerController : MonoBehaviour
     }
 
     [Serializable]
-    private struct RaycastParams
+    public struct RaycastParams
     {
+        public Vector3 positionOffset;
         public float raycastDistance;
         public LayerMask mask;
     }
@@ -25,8 +26,6 @@ public class PlayerController : MonoBehaviour
     [Header("References")]
     [SerializeField]
     private Transform cameraTransform;
-    [SerializeField]
-    private SpherecastParams groundCheckParams;
     [SerializeField]
     private CameraFXManager cameraFx;
 
@@ -44,6 +43,7 @@ public class PlayerController : MonoBehaviour
     private float jumpSpeed = 100f;
     [SerializeField]
     private float airControl = 0.8f;
+    [SerializeField]
     [Range(1f, 2f)]
     private float sprintMultiplier = 1.5f;
     [SerializeField]
@@ -55,12 +55,22 @@ public class PlayerController : MonoBehaviour
     [SerializeField]
     [Tooltip("X is perpendicular out, Y is tangential up")]
     private Vector2 wallJumpSpeed;
-
-    [Header("Wall Checking")]
+    [SerializeField]
+    private float wallSlideSpeed;
+    [SerializeField]
+    private float vaultHeight;
+    [SerializeField]
+    private float vaultDistance;
+    [SerializeField]
+    private LayerMask vaultMask;
+    
+    [Header("Raycast Checking")]
+    [SerializeField]
+    private SpherecastParams groundCheckParams;
     [SerializeField]
     private RaycastParams wallCheckRaycastParams;
     [SerializeField]
-    private float wallSlideSpeed;
+    private float maxDistanceForFacingWall = 0.6f;
 
     [Header("Debugging")]
     [SerializeField]
@@ -76,8 +86,13 @@ public class PlayerController : MonoBehaviour
     private bool _isHoldingSprint;
     private bool _isGrounded;
     private bool _isFacingWall;
+    private bool _wallAhead;
+    private bool _canVault;
     private bool _isWallJumping;
+    private RaycastHit _wallCheckHit;
+    private RaycastHit _vaultCheckHit;
     private StateMachine _stateMachine;
+    private Transform _transform; //caching to prevent repeated property access. Apparently this is noticeable
     private Rigidbody _rb;
 
     public Vector2 Move { get; private set; }
@@ -98,9 +113,12 @@ public class PlayerController : MonoBehaviour
     public float JumpSpeed => jumpSpeed;
     public float AirControl => airControl;
     public float SprintMultiplier => sprintMultiplier;
+    public RaycastHit WallCheckHit => _wallCheckHit;
     public Vector2 WallJumpSpeed => wallJumpSpeed;
     public float WallSlideSpeed => wallSlideSpeed;
     public Vector3 Velocity => _rb.velocity;
+    public RaycastHit VaultCheckHit => _vaultCheckHit;
+    public bool IsFacingWall => _isFacingWall;
 
     public delegate void OnPercentageValueChangedHandler(float percent);
 
@@ -108,6 +126,7 @@ public class PlayerController : MonoBehaviour
 
     private void Awake()
     {
+        _transform = transform;
         _isHoldingSprint = false;
         _isFacingWall = false;
         _hasToJump = false;
@@ -120,11 +139,12 @@ public class PlayerController : MonoBehaviour
         Walking walking = new Walking(this);
         Sprinting sprinting = new Sprinting(this, cameraFx);
         Jump jump = new Jump(this);
-        Midair midair = new Midair(this, transform);
+        Midair midair = new Midair(this, _transform);
         WallSlide wallSlide = new WallSlide(this);
         WallJump wallJump = new WallJump(this);
         Idle idle = new Idle(this);
-
+        Vault vault = new Vault(this, _transform);
+        
         bool IsMoving() => Move != Vector2.zero;
         bool NotMoving() => Move == Vector2.zero;
         bool Grounded() => _isGrounded;
@@ -133,10 +153,11 @@ public class PlayerController : MonoBehaviour
         bool SprintButtonLeft() => !_isHoldingSprint;
         bool CannotSprint() => !CanSprint;
         bool JumpButtonPressed() => _hasToJump;
-        bool FacingWallAndHoldingForward() => _isFacingWall && Move.y > 0f;
-        bool NotFacingWall() => !_isFacingWall;
+        bool FacingWallAndHoldingForward() => IsFacingWall && Move.y > 0f;
+        bool NotFacingWall() => !IsFacingWall;
         bool NotHoldingForward() => Move.y < MoveSpeed;
-
+        bool CanVaultAndHoldingForward() => _canVault && Move.y > 0f;
+        
         _stateMachine.AddTransition(idle, walking, IsMoving);
         _stateMachine.AddTransition(idle, midair, NotGrounded);
         _stateMachine.AddTransition(idle, jump, JumpButtonPressed);
@@ -145,13 +166,15 @@ public class PlayerController : MonoBehaviour
         _stateMachine.AddTransition(walking, midair, NotGrounded);
         _stateMachine.AddTransition(walking, sprinting, SprintButtonHeldAndCanSprint);
         _stateMachine.AddTransition(walking, jump, JumpButtonPressed);
-
+        _stateMachine.AddTransition(walking, vault, CanVaultAndHoldingForward);
+        
         _stateMachine.AddTransition(sprinting, idle, NotMoving);
         _stateMachine.AddTransition(sprinting, walking, SprintButtonLeft);
         _stateMachine.AddTransition(sprinting, walking, CannotSprint);
         _stateMachine.AddTransition(sprinting, midair, NotGrounded);
         _stateMachine.AddTransition(sprinting, jump, JumpButtonPressed);
-
+        _stateMachine.AddTransition(sprinting, vault, CanVaultAndHoldingForward);
+        
         _stateMachine.AddTransition(jump, midair, NotGrounded);
 
         _stateMachine.AddTransition(midair, idle, Grounded);
@@ -161,9 +184,12 @@ public class PlayerController : MonoBehaviour
         _stateMachine.AddTransition(wallSlide, idle, Grounded);
         _stateMachine.AddTransition(wallSlide, wallJump, JumpButtonPressed);
         _stateMachine.AddTransition(wallSlide, midair, NotFacingWall);
-        
-        _stateMachine.AddTransition(wallJump, midair, NotGrounded);
 
+        _stateMachine.AddTransition(wallJump, midair, NotGrounded);
+        
+        _stateMachine.AddTransition(vault, midair, NotGrounded);
+        _stateMachine.AddTransition(vault, idle, Grounded);
+        
         _stateMachine.ChangeState(idle);
     }
 
@@ -187,15 +213,19 @@ public class PlayerController : MonoBehaviour
 
     private void Update()
     {
-        _stateMachine.Tick();
-
-        transform.Rotate(Vector3.up, _look.x);
+        _transform.Rotate(Vector3.up, _look.x);
         cameraTransform.Rotate(Vector3.right, _look.y);
 
         HandleSprintDuration();
         ClampCameraRotation();
         CheckGrounded();
         CheckFacingWall();
+        CheckCanVault();    //Must come after CheckFacingWall
+    }
+
+    private void FixedUpdate()
+    {
+        _stateMachine.Tick();
     }
 
     private void OnDisable()
@@ -218,6 +248,7 @@ public class PlayerController : MonoBehaviour
 
     private void OnDrawGizmos()
     {
+        // ReSharper disable Unity.InefficientPropertyAccess
         Gizmos.color = Color.green;
         if (showGroundCheck)
         {
@@ -226,8 +257,12 @@ public class PlayerController : MonoBehaviour
         }
 
         if (showWallCheck)
-            Gizmos.DrawLine(transform.position,
-                            transform.position + transform.forward * wallCheckRaycastParams.raycastDistance);
+        {
+            Gizmos.DrawLine(transform.position + wallCheckRaycastParams.positionOffset,
+                            transform.position + wallCheckRaycastParams.positionOffset +
+                            transform.forward * wallCheckRaycastParams.raycastDistance);
+        }
+        // ReSharper restore Unity.InefficientPropertyAccess
     }
 
     public void SetRelativeVelocity(float x, float y, float z)
@@ -235,7 +270,7 @@ public class PlayerController : MonoBehaviour
         if (_isWallJumping)
             return;
 
-        _rb.velocity = transform.right * x + transform.up * y + transform.forward * z;
+        _rb.velocity = _transform.right * x + _transform.up * y + _transform.forward * z;
     }
 
     public void SetAbsoluteVelocity(float x, float y, float z)
@@ -248,6 +283,19 @@ public class PlayerController : MonoBehaviour
     public void ResetHasToJump()
     {
         _hasToJump = false;
+    }
+
+    public void ResetYVelocityAfter(float delay)
+    {
+        Timing.RunCoroutine(ResetYVelocityAfterDelay(delay));
+    }
+
+    private IEnumerator<float> ResetYVelocityAfterDelay(float delay)
+    {
+        yield return Timing.WaitForSeconds(delay);
+        Vector3 velocity = _rb.velocity;
+        velocity = new Vector3(velocity.x, 0f, velocity.z);
+        _rb.velocity = velocity;
     }
 
     public void OnWallJump()
@@ -264,16 +312,58 @@ public class PlayerController : MonoBehaviour
 
     private void CheckGrounded()
     {
-        _isGrounded = Physics.SphereCast(new Ray(transform.position, Vector3.down), groundCheckParams.spherecastRadius,
+        _isGrounded = Physics.SphereCast(new Ray(_transform.position, Vector3.down), groundCheckParams.spherecastRadius,
                                          groundCheckParams.spherecastDistance, groundCheckParams.mask,
                                          QueryTriggerInteraction.Ignore);
     }
 
     private void CheckFacingWall()
     {
-        _isFacingWall = Physics.Raycast(new Ray(transform.position, transform.forward),
-                                        wallCheckRaycastParams.raycastDistance, wallCheckRaycastParams.mask,
-                                        QueryTriggerInteraction.Ignore);
+        _wallAhead = Physics.Raycast(_transform.position + wallCheckRaycastParams.positionOffset, _transform.forward,
+                                     out _wallCheckHit, wallCheckRaycastParams.raycastDistance,
+                                     wallCheckRaycastParams.mask, QueryTriggerInteraction.Ignore);
+        if (_wallAhead)
+        {
+            Vector3 point = _wallCheckHit.point;
+            point.y = _transform.position.y;
+            if ((point - _transform.position).sqrMagnitude <=
+                maxDistanceForFacingWall * maxDistanceForFacingWall)
+            {
+                _isFacingWall = true;
+            }
+            else
+            {
+                _isFacingWall = false;
+            }
+        }
+        else
+        {
+            _isFacingWall = false;
+        }
+    }
+
+    private void CheckCanVault()
+    {
+        if (!_wallAhead)
+        {
+            _canVault = false;
+            return;
+        }
+
+        Vector3 wallCheckHitPoint = _wallCheckHit.point;
+        wallCheckHitPoint.y = _transform.position.y;
+        float sqrDistance = (wallCheckHitPoint - transform.position).sqrMagnitude;
+        if (sqrDistance <= vaultDistance * vaultDistance &&
+            Physics.SphereCast(_wallCheckHit.point + Vector3.up * (vaultHeight + 0.5f), 0.25f, Vector3.down,
+                               out _vaultCheckHit, vaultHeight + 1f, vaultMask,
+                               QueryTriggerInteraction.Ignore))
+        {
+            _canVault = true;
+        }
+        else
+        {
+            _canVault = false;
+        }
     }
 
     private void HandleSprintDuration()
@@ -322,7 +412,6 @@ public class PlayerController : MonoBehaviour
 
     private void JumpInput(InputAction.CallbackContext context)
     {
-        // if (IsGrounded) Rb.velocity += Vector3.up * jumpSpeed;
         _hasToJump = true;
     }
 
