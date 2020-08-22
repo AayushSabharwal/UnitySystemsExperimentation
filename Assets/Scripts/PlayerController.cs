@@ -39,13 +39,13 @@ public class PlayerController : MonoBehaviour
 
     [Header("Basic Movement Parameters")]
     [SerializeField]
-    public float moveSpeed = 4f;
+    private float moveSpeed = 4f;
     [SerializeField]
-    public float jumpSpeed = 100f;
+    private float jumpSpeed = 100f;
     [SerializeField]
-    public float airControl = 0.8f;
+    private float airControl = 0.8f;
     [Range(1f, 2f)]
-    public float sprintMultiplier = 1.5f;
+    private float sprintMultiplier = 1.5f;
     [SerializeField]
     private float sprintDuration = 2f;
     [SerializeField]
@@ -54,12 +54,13 @@ public class PlayerController : MonoBehaviour
     private float wallJumpDuration = 0.4f;
     [SerializeField]
     [Tooltip("X is perpendicular out, Y is tangential up")]
-    public Vector2 wallJumpSpeed;
+    private Vector2 wallJumpSpeed;
 
     [Header("Wall Checking")]
     [SerializeField]
     private RaycastParams wallCheckRaycastParams;
-    public float wallSlideSpeed;
+    [SerializeField]
+    private float wallSlideSpeed;
 
     [Header("Debugging")]
     [SerializeField]
@@ -93,6 +94,13 @@ public class PlayerController : MonoBehaviour
             OnSprintValueChanged?.Invoke(value / sprintDuration);
         }
     }
+    public float MoveSpeed => moveSpeed;
+    public float JumpSpeed => jumpSpeed;
+    public float AirControl => airControl;
+    public float SprintMultiplier => sprintMultiplier;
+    public Vector2 WallJumpSpeed => wallJumpSpeed;
+    public float WallSlideSpeed => wallSlideSpeed;
+    public Vector3 Velocity => _rb.velocity;
 
     public delegate void OnPercentageValueChangedHandler(float percent);
 
@@ -109,12 +117,12 @@ public class PlayerController : MonoBehaviour
         _rb = GetComponent<Rigidbody>();
 
         _stateMachine = new StateMachine();
-        Walking walking = new Walking(this, _rb);
-        Sprinting sprinting = new Sprinting(this, _rb, cameraFx);
-        Jump jump = new Jump(this, _rb);
-        Midair midair = new Midair(this, _rb, transform);
-        WallSlide wallSlide = new WallSlide(this, _rb);
-        WallJump wallJump = new WallJump(this, _rb);
+        Walking walking = new Walking(this);
+        Sprinting sprinting = new Sprinting(this, cameraFx);
+        Jump jump = new Jump(this);
+        Midair midair = new Midair(this, transform);
+        WallSlide wallSlide = new WallSlide(this);
+        WallJump wallJump = new WallJump(this);
         Idle idle = new Idle(this);
 
         bool IsMoving() => Move != Vector2.zero;
@@ -127,7 +135,7 @@ public class PlayerController : MonoBehaviour
         bool JumpButtonPressed() => _hasToJump;
         bool FacingWallAndHoldingForward() => _isFacingWall && Move.y > 0f;
         bool NotFacingWall() => !_isFacingWall;
-        bool NotHoldingForward() => Move.y < moveSpeed;
+        bool NotHoldingForward() => Move.y < MoveSpeed;
 
         _stateMachine.AddTransition(idle, walking, IsMoving);
         _stateMachine.AddTransition(idle, midair, NotGrounded);
@@ -145,7 +153,6 @@ public class PlayerController : MonoBehaviour
         _stateMachine.AddTransition(sprinting, jump, JumpButtonPressed);
 
         _stateMachine.AddTransition(jump, midair, NotGrounded);
-        // _stateMachine.AddTransition(jump, idle, Grounded);
 
         _stateMachine.AddTransition(midair, idle, Grounded);
         _stateMachine.AddTransition(midair, wallSlide, FacingWallAndHoldingForward);
@@ -304,7 +311,7 @@ public class PlayerController : MonoBehaviour
 
     private void MoveInput(InputAction.CallbackContext context)
     {
-        Move = context.ReadValue<Vector2>() * moveSpeed;
+        Move = context.ReadValue<Vector2>() * MoveSpeed;
     }
 
     private void LookInput(InputAction.CallbackContext context)

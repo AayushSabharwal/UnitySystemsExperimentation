@@ -1,14 +1,10 @@
-﻿using UnityEngine;
-
-public class WallSlide : IState
+﻿public class WallSlide : IState
 {
     private readonly PlayerController _controller;
-    private readonly Rigidbody _rb;
 
-    public WallSlide(PlayerController controller, Rigidbody rb)
+    public WallSlide(PlayerController controller)
     {
         _controller = controller;
-        _rb = rb;
     }
 
     public void OnEnter()
@@ -17,8 +13,7 @@ public class WallSlide : IState
 
     public void Tick()
     {
-        // _rb.velocity = Vector3.down * _controller.wallSlideSpeed + _transform.right * _controller.Move.x;
-        _controller.SetRelativeVelocity(_controller.Move.x, -_controller.wallSlideSpeed, 0f);
+        _controller.SetRelativeVelocity(_controller.Move.x, -_controller.WallSlideSpeed, 0f);
     }
 
     public void OnExit()

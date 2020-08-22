@@ -1,6 +1,4 @@
-﻿using UnityEngine;
-
-public class Idle : IState
+﻿public class Idle : IState
 {
     private readonly PlayerController _controller;
 
