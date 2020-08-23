@@ -43,6 +43,8 @@ public class PlayerController : MonoBehaviour
     private float jumpSpeed = 100f;
     [SerializeField]
     private float airControl = 0.8f;
+    
+    [Header("Sprinting")]
     [SerializeField]
     [Range(1f, 2f)]
     private float sprintMultiplier = 1.5f;
@@ -50,17 +52,27 @@ public class PlayerController : MonoBehaviour
     private float sprintDuration = 2f;
     [SerializeField]
     private float sprintRegenerationDelay = 1f;
+    
+    [Header("Wall Jump, Slide, Grab, and Climb")]
     [SerializeField]
     private float wallJumpDuration = 0.4f;
     [SerializeField]
     [Tooltip("X is perpendicular out, Y is tangential up")]
     private Vector2 wallJumpSpeed;
     [SerializeField]
-    private float wallSlideSpeed;
+    private float verticalWallSlideSpeed;
+    [SerializeField]
+    private float horizontalWallSlideSpeed;
+    [SerializeField]
+    private float ledgeClimbVelocity = 3f;
+    
+    [Header("Vaulting")]
     [SerializeField]
     private float vaultHeight;
     [SerializeField]
     private float vaultDistance;
+    [SerializeField]
+    private float minimumVaultDistance = 0.2f;
     [SerializeField]
     private LayerMask vaultMask;
     
@@ -115,10 +127,14 @@ public class PlayerController : MonoBehaviour
     public float SprintMultiplier => sprintMultiplier;
     public RaycastHit WallCheckHit => _wallCheckHit;
     public Vector2 WallJumpSpeed => wallJumpSpeed;
-    public float WallSlideSpeed => wallSlideSpeed;
+    public float VerticalWallSlideSpeed => verticalWallSlideSpeed;
     public Vector3 Velocity => _rb.velocity;
     public RaycastHit VaultCheckHit => _vaultCheckHit;
     public bool IsFacingWall => _isFacingWall;
+    public float MinimumVaultDistance => minimumVaultDistance;
+    public float HorizontalWallSlideSpeed => horizontalWallSlideSpeed;
+    public float VaultHeight => vaultHeight;
+    public float LedgeClimbVelocity => ledgeClimbVelocity;
 
     public delegate void OnPercentageValueChangedHandler(float percent);
 
@@ -144,6 +160,8 @@ public class PlayerController : MonoBehaviour
         WallJump wallJump = new WallJump(this);
         Idle idle = new Idle(this);
         Vault vault = new Vault(this, _transform);
+        LedgeGrab ledgeGrab = new LedgeGrab(this);
+        LedgeClimb ledgeClimb = new LedgeClimb(this);
         
         bool IsMoving() => Move != Vector2.zero;
         bool NotMoving() => Move == Vector2.zero;
@@ -153,10 +171,12 @@ public class PlayerController : MonoBehaviour
         bool SprintButtonLeft() => !_isHoldingSprint;
         bool CannotSprint() => !CanSprint;
         bool JumpButtonPressed() => _hasToJump;
-        bool FacingWallAndHoldingForward() => IsFacingWall && Move.y > 0f;
+        bool FacingWallAndHoldingForwardAndCannotVault() => IsFacingWall && Move.y > 0f && !_canVault;
         bool NotFacingWall() => !IsFacingWall;
         bool NotHoldingForward() => Move.y < MoveSpeed;
         bool CanVaultAndHoldingForward() => _canVault && Move.y > 0f;
+        bool CanVaultAndFacingWallAndHoldingForward() => _canVault && _isFacingWall && Move.y > 0f;
+        bool MovingBack() => Move.y < 0f;
         
         _stateMachine.AddTransition(idle, walking, IsMoving);
         _stateMachine.AddTransition(idle, midair, NotGrounded);
@@ -178,17 +198,26 @@ public class PlayerController : MonoBehaviour
         _stateMachine.AddTransition(jump, midair, NotGrounded);
 
         _stateMachine.AddTransition(midair, idle, Grounded);
-        _stateMachine.AddTransition(midair, wallSlide, FacingWallAndHoldingForward);
-
+        _stateMachine.AddTransition(midair, wallSlide, FacingWallAndHoldingForwardAndCannotVault);
+        _stateMachine.AddTransition(midair, ledgeGrab, CanVaultAndFacingWallAndHoldingForward);
+        
         _stateMachine.AddTransition(wallSlide, midair, NotHoldingForward);
         _stateMachine.AddTransition(wallSlide, idle, Grounded);
         _stateMachine.AddTransition(wallSlide, wallJump, JumpButtonPressed);
         _stateMachine.AddTransition(wallSlide, midair, NotFacingWall);
+        _stateMachine.AddTransition(wallSlide, ledgeGrab, CanVaultAndFacingWallAndHoldingForward);
 
         _stateMachine.AddTransition(wallJump, midair, NotGrounded);
         
         _stateMachine.AddTransition(vault, midair, NotGrounded);
         _stateMachine.AddTransition(vault, idle, Grounded);
+        
+        _stateMachine.AddTransition(ledgeGrab, midair, MovingBack);
+        _stateMachine.AddTransition(ledgeGrab, ledgeClimb, JumpButtonPressed);
+        _stateMachine.AddTransition(ledgeGrab, midair, NotFacingWall);
+        
+        _stateMachine.AddTransition(ledgeClimb, midair, NotGrounded);
+        _stateMachine.AddTransition(ledgeClimb, idle, Grounded);
         
         _stateMachine.ChangeState(idle);
     }
@@ -220,7 +249,7 @@ public class PlayerController : MonoBehaviour
         ClampCameraRotation();
         CheckGrounded();
         CheckFacingWall();
-        CheckCanVault();    //Must come after CheckFacingWall
+        CheckCanVaultOrClimb();    //Must come after CheckFacingWall
     }
 
     private void FixedUpdate()
@@ -310,6 +339,16 @@ public class PlayerController : MonoBehaviour
         _isWallJumping = false;
     }
 
+    public void DisableGravity()
+    {
+        _rb.useGravity = false;
+    }
+
+    public void EnableGravity()
+    {
+        _rb.useGravity = true;
+    }
+
     private void CheckGrounded()
     {
         _isGrounded = Physics.SphereCast(new Ray(_transform.position, Vector3.down), groundCheckParams.spherecastRadius,
@@ -322,6 +361,7 @@ public class PlayerController : MonoBehaviour
         _wallAhead = Physics.Raycast(_transform.position + wallCheckRaycastParams.positionOffset, _transform.forward,
                                      out _wallCheckHit, wallCheckRaycastParams.raycastDistance,
                                      wallCheckRaycastParams.mask, QueryTriggerInteraction.Ignore);
+        
         if (_wallAhead)
         {
             Vector3 point = _wallCheckHit.point;
@@ -342,7 +382,7 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    private void CheckCanVault()
+    private void CheckCanVaultOrClimb()
     {
         if (!_wallAhead)
         {

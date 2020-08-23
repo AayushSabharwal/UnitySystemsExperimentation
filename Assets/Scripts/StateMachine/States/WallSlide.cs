@@ -13,7 +13,7 @@
 
     public void Tick()
     {
-        _controller.SetRelativeVelocity(_controller.Move.x, -_controller.WallSlideSpeed, 0f);
+        _controller.SetRelativeVelocity(_controller.Move.x/_controller.MoveSpeed * _controller.HorizontalWallSlideSpeed, -_controller.VerticalWallSlideSpeed, 0f);
     }
 
     public void OnExit()
